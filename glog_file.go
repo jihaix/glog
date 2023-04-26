@@ -25,6 +25,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/syslog"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -148,6 +149,7 @@ type flushSyncWriter interface {
 }
 
 var sinks struct {
+	syslog syslogSink
 	stderr stderrSink
 	file   fileSink
 }
@@ -155,7 +157,7 @@ var sinks struct {
 func init() {
 	// Register stderr first: that way if we crash during file-writing at least
 	// the log will have gone somewhere.
-	logsink.TextSinks = append(logsink.TextSinks, &sinks.stderr, &sinks.file)
+	logsink.TextSinks = append(logsink.TextSinks, &sinks.syslog, &sinks.stderr, &sinks.file)
 
 	sinks.file.flushChan = make(chan logsink.Severity, 1)
 	go sinks.file.flushDaemon()
@@ -189,6 +191,42 @@ func (s *stderrSink) Emit(m *logsink.Meta, data []byte) (n int, err error) {
 	return n, err
 }
 
+// syslogSink is a logsink.Text that writes log entries to syslog
+// if they meet certain conditions.
+type syslogSink struct {
+	mu sync.Mutex
+	w  io.Writer // if nil Emit uses os.Stderr directly
+}
+
+// Enabled implements logsink.Text.Enabled.  It returns true if any of the
+// various syslog flags are enabled for logs of the given severity, if the log
+// message is from the standard "log" package, or if google.Init has not yet run
+// (and hence file logging is not yet initialized).
+func (s *syslogSink) Enabled(m *logsink.Meta) bool {
+	return toSyslog
+}
+
+// Emit implements logsink.Text.Emit.
+func (s *syslogSink) Emit(m *logsink.Meta, data []byte) (n int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w := s.w
+	if w == nil {
+		sysLog, err := syslog.Dial("", "", syslog.LOG_NOTICE, promt)
+		if err != nil {
+			return 0, nil
+		}
+		w = sysLog
+		s.w = w
+	}
+	dn, err := w.Write(data)
+	if err != nil {
+		s.w = nil
+	}
+	n += dn
+	return n, err
+}
+
 // severityWriters is an array of flushSyncWriter with a value for each
 // logsink.Severity.
 type severityWriters [4]flushSyncWriter
@@ -204,7 +242,7 @@ type fileSink struct {
 // Enabled implements logsink.Text.Enabled.  It returns true if google.Init
 // has run and both --disable_log_to_disk and --logtostderr are false.
 func (s *fileSink) Enabled(m *logsink.Meta) bool {
-	return !toStderr
+	return !toStderr && !toSyslog
 }
 
 // Emit implements logsink.Text.Emit

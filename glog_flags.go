@@ -363,8 +363,10 @@ var (
 	// Boolean flags. Not handled atomically because the flag.Value interface
 	// does not let us avoid the =true, and that shorthand is necessary for
 	// compatibility. TODO: does this matter enough to fix? Seems unlikely.
-	toStderr     bool // The -logtostderr flag.
-	alsoToStderr bool // The -alsologtostderr flag.
+	promt        string // The -promt
+	toSyslog     bool   // The -logtosyslog flag.
+	toStderr     bool   // The -logtostderr flag.
+	alsoToStderr bool   // The -alsologtostderr flag.
 
 	stderrThreshold severityFlag // The -stderrthreshold flag.
 )
@@ -392,6 +394,8 @@ func init() {
 
 	stderrThreshold = severityFlag(logsink.Error)
 
+	flag.StringVar(&promt, "promt", "app", "promt, app name as usual")
+	flag.BoolVar(&toSyslog, "logtosyslog", false, "log to syslog instead of files")
 	flag.BoolVar(&toStderr, "logtostderr", false, "log to standard error instead of files")
 	flag.BoolVar(&alsoToStderr, "alsologtostderr", false, "log to standard error as well as files")
 	flag.Var(&stderrThreshold, "stderrthreshold", "logs at or above this threshold go to stderr")
